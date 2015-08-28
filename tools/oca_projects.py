@@ -132,14 +132,15 @@ OCA_PROJECTS = {
     }
 
 
-def get_repositories():
+def get_repositories(gh=None):
     ignored = set([
         'odoo-community.org',
         'community-data-files',
         'contribute-md-template',
         'website',
         ])
-    gh = login()
+    if not gh:
+        gh = login()
     all_repos = [repo.name for repo in gh.iter_user_repos('OCA')
                  if repo not in ignored]
     return all_repos
