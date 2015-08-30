@@ -32,13 +32,10 @@ def extract(modulename, repo):
     :return: a list of path which could be unclean history
     """
     # XXX check if repo exists locally
-    print("clone {0}".format(repo.git_url))
-    cmd = ['git', 'clone', '--quiet', repo.git_url]
-    # IT WORKS
-    try:
+    if not os.path.exists:
+        print("clone {0}".format(repo.git_url))
+        cmd = ['git', 'clone', '--quiet', repo.git_url]
         subprocess.check_call(cmd)
-    except:
-        pass
     os.chdir(repo.name)
     print("Add a remote to dest repo")
     cmd = ['git', 'remote', 'add',
@@ -53,35 +50,34 @@ def extract(modulename, repo):
         subprocess.check_call(cmd)
     except:
         pass
-#    for dirname, module in repo.contents('.', ref=8.0).iteritems():
-#        # check if this is a module
-#        if module.type != 'dir':
-#            continue
-#        if dirname in ['__unported__', modulename]:
-#            continue
-#        cmd = ['git', 'filter-branch', '--tree-filter',
-#               "rm -rf {0}".format(dirname), '-f', 'HEAD']
-#        print(subprocess.check_call(cmd))
-#    unported_content = repo.contents('__unported__', ref=8.0) or {}
-#    for dirname, module in unported_content.iteritems():
-#        if dirname == modulename:
-#            continue
-#        cmd = ['git', 'filter-branch', '--tree-filter',
-#               "'rm -rf __unported__/{0}'".format(dirname), 'HEAD']
-#        subprocess.check_call(cmd)
+    for dirname, module in repo.contents('.', ref=8.0).iteritems():
+        # check if this is a module
+        if module.type != 'dir':
+            continue
+        if dirname in ['__unported__', modulename]:
+            continue
+        cmd = ['git', 'filter-branch', '--tree-filter',
+               "rm -rf {0}".format(dirname), '-f', 'HEAD']
+        print(subprocess.check_call(cmd))
+    unported_content = repo.contents('__unported__', ref=8.0) or {}
+    for dirname, module in unported_content.iteritems():
+        if dirname == modulename:
+            continue
+        cmd = ['git', 'filter-branch', '--tree-filter',
+               "'rm -rf __unported__/{0}'".format(dirname), 'HEAD']
+        subprocess.check_call(cmd)
     # Here this should leave us with a pretty elaged tree
     # Now we can try to identify old names of the module
     # so we can display it to the user so he can do the final step
     # We will list all __openerp__.py files that have been moved or deleted
     # list deleted __openerp__.py in history
     cmd = ['git', 'log', '--diff-filter=D', '--summary']
-    cmd2 = ['grep', '-E', '^delete.*__openerp__.py|^commit']
-    cmd3 = ['grep', 'delete', '-B', '1']
-    git_log = subprocess.check_output(cmd)
+    moved_terps = subprocess.check_output(cmd)
 
     # push the branch to the new repo
     cmd = ['git', 'push', 'repo_{0}'.format(modulename)]
     subprocess.check_call(cmd)
+    os.chdir('..')
     return moved_terps
 
 
@@ -123,32 +119,40 @@ def main():
             contents = repo.contents(modulename, ref=8.0)
             if '__openerp__.py' not in contents:
                 continue
-            description = u'Module {title} is part of {cat_title}'.format(
-                title=modulename,
-                cat_title=repo.description
-            )
-            # IT WORKS
-            #newrepo = gh.create_repo(
-            #    modulename,
-            #    description=description
-            #)
+            newrepo = gh.repository(ORGNAME, modulename)
+            if not newrepo:
+                description = u'Module {title} is part of {cat_title}'.format(
+                    title=modulename,
+                    cat_title=repo.description
+                )
+                newrepo = gh.create_repo(
+                    modulename,
+                    description=description
+                )
             # assign teams
             #for team in repo.iter_teams():
-                #team.add_repo(u'{0}/{1}'.format(ORGNAME, modulename))
-            # create an empty branch
-            # hash = git hash-object -t tree /dev/null
-            # http://stackoverflow.com/a/9766506/1945921
-            #newrepo.create_ref(
-            #    "9.0", '4b825dc642cb6eb9a060e54bf8d69288fbee4904')
+            #    team.add_repo(u'{0}/{1}'.format(ORGNAME, modulename))
+            # create an empty branch (use first commit of old branch)
             history_to_clean = extract(modulename, repo)
             if history_to_clean:
-                history_to_clean += ("To remove a directory from history use: "
-                                     "git filter-branch --tree-filter 'rm -rf "
-                                     "{dirname}' HEAD")
+                history_to_clean += (
+                    "\nTo remove a directory from history use:\n"
+                    "git filter-branch --tree-filter 'rm -rf {dirname}' HEAD")
             newrepo.refresh()
+            if not newrepo.branch('refs/heads/9.0'):
+                # get oldest commit
+                init_commit = None
+                for init_commit in newrepo.iter_commits():
+                    pass
+                newrepo.create_ref(
+                    "refs/heads/9.0", init_commit.sha)
+            if not newrepo.default_branch == '9.0':
+                newrepo.edit("{0}/{1}".format(ORGNAME, modulename),
+                             default_branch='9.0')
+            import pdb; pdb.set_trace()
             newrepo.create_pull(
                 "Migration to 9.0 [fork me]", "9.0",
-                'OCA/migrate_{0}'.format(modulename),
+                '{0}:migrate_{1}'.format(ORGNAME, modulename),
                 body="Migration of {0}\n{1}".format(modulename,
                                                     history_to_clean))
             # call set_repo_with_labels
